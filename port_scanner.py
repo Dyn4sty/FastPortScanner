@@ -5,28 +5,27 @@ from colorama import init, Fore, Back, Style
 
 init() # Initialize colorama for windows
 mutex = threading.Lock()
-open_ports = []
-store_host = "" # Store the target's host name to be written in output file.
+threads_list = []
+open_ports_list = []
+store_host = [] # Store the target's host name to be written in output file.
 common_open_ports = {21: 'ftp',22: 'ssh',23: 'telnet',25: 'smtp',53: 'DNS',80: 'http',110: 'pop3',111: 'rpcbind',135: 'msrpc',139: 'netbios-ssn',143: 'imap',443: 'https',445: 'microsoft-ds',993: 'imaps',995: 'pop3s',1723: 'pptp',3306: 'mysql',3389: 'ms-wbt-server',5900: 'vnc',8080: 'http-proxy'}
 
 def validate_hostname(hostname):
-    global store_host
-    store_host = hostname
+    store_host.append(hostname)
     try: return socket.gethostbyname(hostname)
     except socket.error: raise argparse.ArgumentTypeError("invalid host %s" % str(hostname))
 
 def validate_port(port):
-    error_msg = "invalid port %s" % str(port)
     try:
         port_ranges = port.split('-')
         for num in port_ranges:
             if not num.isdigit() or int(num) > 65535: 
-                raise argparse.ArgumentTypeError(error_msg)
+                raise argparse.ArgumentTypeError("invalid port %s" % str(port))
         port_ranges = [int(num) for num in port_ranges]
         if len(port_ranges) < 2: port_ranges.append(port_ranges[0])
         return port_ranges
     except: 
-        raise argparse.ArgumentTypeError(error_msg)
+        raise argparse.ArgumentTypeError("invalid port %s" % str(port))
 
 def write_to_output_file(filename, data=False):
     if filename == None: return False
@@ -47,26 +46,23 @@ def port_checker(host, port, connect_timeout):
             mutex.acquire()
             print(Style.BRIGHT + "[+] Open Port: %s%s" % (port,port_service))
             mutex.release()
-            open_ports.append("%s%s" % (str(port), port_service))
+            open_ports_list.append("%s%s" % (str(port), port_service))
 
 def start_scan_threads(options):
-    threads_list = []
     if type(options.port) is not list: # scan default ports
         print("\nScanning default ports:\n%s\n-----------------" % (list(options.port.keys())))
-        for key in options.port:
-            if threading.active_count() > options.threads_number: time.sleep(options.threads_execution_sleeptime)
-            t1 = threading.Thread(target=port_checker, args=[options.target_host, int(key), options.connect_timeout])
-            t1.start()
-            threads_list.append(t1)
-        for thread in threads_list: thread.join()
+        for port in options.port: launch_thread(options, port)
     else: # scan ports by user input
         print("\nScanning ports by range:\nFROM PORT %s\n-----------------" % (" TO PORT ".join(list(map(lambda x:str(x),options.port)))))
-        for port in range(options.port[0], options.port[1] + 1):
-            if threading.active_count() > options.threads_number: time.sleep(options.threads_execution_sleeptime)
-            t1 = threading.Thread(target=port_checker, args=[options.target_host, int(port), options.connect_timeout])
-            t1.start()
-            threads_list.append(t1)
+        for port in range(options.port[0], options.port[1] + 1): launch_thread(options, port)
+    if len(threads_list) > 0:
         for thread in threads_list: thread.join()
+
+def launch_thread(options, port):
+    if threading.active_count() > options.threads_number: time.sleep(options.threads_execution_sleeptime)
+    t = threading.Thread(target=port_checker, args=[options.target_host, int(port), options.connect_timeout])
+    t.start()
+    threads_list.append(t)
 
 def args_parse():
     parser = argparse.ArgumentParser(description='''usage example: %s -t example.com -p 80-81''' % sys.argv[0])
@@ -86,8 +82,8 @@ def main():
         start_scan_threads(options)
         end_time = time.time()
         total_time = end_time - start_time
-        print(Style.BRIGHT + "\nOpen Ports:", open_ports, Style.RESET_ALL,"\nPort scanning has been completed in %f second(s)!" % (total_time))
-        if options.output_file: write_to_output_file(options.output_file, "[%s] <%s> Open Ports: %s\n" % (datetime.today().strftime('%Y-%m-%d'), store_host, open_ports)) # how the output will be implemented
+        print(Style.BRIGHT + "\nOpen Ports:", open_ports_list, Style.RESET_ALL,"\nPort scanning has been completed in %f second(s)!" % (total_time))
+        if options.output_file: write_to_output_file(options.output_file, "[%s] <%s> Open Ports: %s\n" % (datetime.today().strftime('%Y-%m-%d'), store_host[0], open_ports_list)) # how the output will be implemented
     except KeyboardInterrupt: 
         print("%s Terminated." % (sys.argv[0]))
         os._exit(0)
